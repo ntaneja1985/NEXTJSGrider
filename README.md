@@ -1,2 +1,2 @@
-# NEXTJSGrider
-Next JS by Stephen Grider
+# Next JS by Stephen Grider
+
