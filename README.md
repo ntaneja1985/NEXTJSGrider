@@ -232,3 +232,427 @@ export default function Header() {
 - We will have to fill some metadata about our project
 
 ## Changing Data with Mutations
+- To install prisma run the following commands 
+```shell
+npm install prisma 
+
+npx prisma init --datasource-provider sqlite
+
+//After creating a model inside schema.prisma, run this command
+npx prisma migrate dev 
+```
+- Inside the schema.prisma file, write a model like this 
+```js
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Snippet {
+  id    Int    @id @default(autoincrement())
+  title String
+  code  String
+}
+
+```
+- ![img_14.png](img_14.png)
+- Now we need to create a prisma client to access our database
+```js
+import {PrismaClient} from "@prisma/client";
+
+//Will be used to perform CRUD operations
+export const db = new PrismaClient();
+// db.snippet.create({
+//     data:{
+//         title:'Title!',
+//         code: 'const abc = () => {}'
+//     }
+// })
+```
+- Now we add a new create snippet form like this:
+```js
+export default  function SnippetCreatePage(){
+    return(
+        <form>
+            <h3 className="font-bold m-3">Create a Snippet</h3>
+            <div className="flex flex-col gap-4">
+                <div className="flex gap-4">
+                    <label className="w-12" htmlFor="title">
+                        Title
+                    </label>
+                    <input
+                        name="title"
+                        className="border rounded p-2 w-full"
+                        id="title"
+                    />
+                </div>
+                <div className="flex gap-4">
+                    <label className="w-12" htmlFor="code">
+                        Code
+                    </label>
+                    <textarea
+                        name="code"
+                        className="border rounded p-2 w-full"
+                        id="code"
+                    />
+                </div>
+                <button type="submit" className="rounded p-2 bg-blue-200">
+                    Create
+                </button>
+            </div>
+        </form>
+    )
+}
+```
+- Remember default behavior of a form POST is to dump everything into a querystring, we use event.preventDefault() to circumvent that and we will use Server Actions
+
+## Server Actions
+- ![img_15.png](img_15.png)
+- Server actions are functions that will be called with the values a user entered into a form.
+- To submit a form we will use a server action
+```js
+import {db} from '@/db';
+import {redirect} from "next/navigation";
+
+export default  function SnippetCreatePage(){
+
+    async function createSnippet(formData:FormData){
+        // This needs to be a server action
+        //Special directive used by Next.js
+        'use server';
+        //Check the user's inputs and make sure they are valid
+        //Typescript knows that whenever we want to get some data from a form, it is of type FormDataEntryValue so we cast it as string
+        const title = formData.get('title') as string;
+        const code = formData.get('code') as string;
+
+        //Create a new record in the database
+        const snippet = await db.snippet.create({
+            data:{
+                title: title,
+                code: code
+            }
+        });
+        console.log(snippet);
+        // Redirect the user back to the root route
+        redirect('/');
+    }
+    return(
+        <form action={createSnippet}>
+            <h3 className="font-bold m-3">Create a Snippet</h3>
+            <div className="flex flex-col gap-4">
+                <div className="flex gap-4">
+                    <label className="w-12" htmlFor="title">
+                        Title
+                    </label>
+                    <input
+                        name="title"
+                        className="border rounded p-2 w-full"
+                        id="title"
+                    />
+                </div>
+                <div className="flex gap-4">
+                    <label className="w-12" htmlFor="code">
+                        Code
+                    </label>
+                    <textarea
+                        name="code"
+                        className="border rounded p-2 w-full"
+                        id="code"
+                    />
+                </div>
+                <button type="submit" className="rounded p-2 bg-blue-200">
+                    Create
+                </button>
+            </div>
+        </form>
+    )
+}
+```
+- **_How traditional React app works**_ 
+- ![img_16.png](img_16.png)
+- On Next.js things are different
+- With Next.js some of our code is running on the browser and some of it runs on the server.
+- - ![img_17.png](img_17.png)
+- Like in the above code, the createSnippet() function (Server action) is executed on the server.
+- In the above code, whenever we submit the form, some javascript that runs on the browser collects the data and sends it off to a function that runs on the server.
+- ![img_18.png](img_18.png)
+- Server actions run on the server. 
+- Next.js create a miniature route handler behind the scenes to handle this interaction.
+
+## Client Components and Server Components
+- Next apps are built with 2 kinds of components: client components and server components
+- ![img_20.png](img_20.png)
+- ![img_21.png](img_21.png)
+- Client components are those React components which we already use: they return some kind of JSX that is rendered into HTML, and then it is displayed on the screen
+- Client components can use hooks, event handlers.
+- Server components bend the rules of traditional components a little bit. Usually we want to use server components for better performance and UX.
+- Prefer to use server components
+
+### Server Components
+- By default all components are server components.
+- Server components can use async/await. Don't need useState or useEffect to do data fetching.
+- ![img_22.png](img_22.png)
+- Server components have a few limitations: 
+- We cannot use any kind of hook.
+- We cannot assign any event handlers.
+- ![img_23.png](img_23.png)
+
+### Client Components
+- Created by adding 'use client' at the very top of the file
+- Have all the usual rules of components
+- Can have hooks, event handlers
+- Cannot directly show a server component(there is one exception)
+- ![img_24.png](img_24.png)
+- This will not work
+- ![img_25.png](img_25.png)
+
+### When do we use each kind of component
+- ![img_26.png](img_26.png)
+- Use client component if we need to use hooks or event handlers.
+- ![img_27.png](img_27.png)
+- When a browser makes a request to next server, it sends some HTML immediately.
+- Both server and client component are rendered into HTML and sent back to the browser.
+- That HTML will also have a script tag inside of it which says look back into Next.js server and download some javascript.
+- That javascript file will implement some event handlers or hooks.
+- So that javascript file will force the browser to make a second request. 
+- ![img_28.png](img_28.png)
+- When the second request reaches the Next.js server, it is going to look at all the client components and extract all the javascript from the client components, put it into a file and send it back to the browser.
+- Even though we have client components, that client component gets rendered one time on the server
+- Always favor using server components.
+
+## Back to Fetching Data
+- ![img_19.png](img_19.png)
+```js
+import {db} from "@/db"
+
+export default async function Home() {
+  const snippets = await db.snippet.findMany();
+
+  const renderedSnippets = snippets.map((snippet) => {
+    return (
+        <div key={snippet.id}>
+          {snippet.title}
+        </div>
+    )
+  });
+
+  return (
+    <div>
+      <h3 className="font-bold m-3">List of snippets</h3>
+      <div>
+        {renderedSnippets}
+      </div>
+    </div>
+  );
+}
+
+```
+
+## Adding Dynamic Paths
+- ![img_29.png](img_29.png)
+- Dynamic Path is like a wildcard.
+- ![img_30.png](img_30.png)
+- These square brackets are like a wildcard. They will match anything after the word "snippets" in their path.
+- ![img_31.png](img_31.png)
+- Next.js is going to capture this value and pass it as a props to our component
+```js
+    export default function SnippetShowPage(props:any){
+    console.log(props);
+    return (
+    <div>
+    Snippet Show Page
+    </div>
+    )
+
+}
+```
+- This will print the following in the console when we navigate to localhost:3000/snippets/7:
+- ![img_32.png](img_32.png)
+- Please note it is always treated as a string. It has a property name of "id" because that's the name of the folder.
+
+## Async Dynamic Params in Next.js
+- In Next.js 15 we must await params or searchParams before accessing.
+```js
+const { id } = await props.params;
+ 
+  const snippet = await db.snippet.findFirst({
+    where: { id: parseInt(id) },
+  });
+```
+- Also, we need to update the Interface and wrap the params in a Promise
+```js
+interface SnippetShowPageProps {
+  params: Promise<{
+    id: string;
+  }>;
+}
+```
+- To use dynamic params in our application we can do this:
+```js
+import {db} from "@/db"
+import {notFound} from "next/navigation";
+
+type SnippetShowPageProps = {
+    params:{
+        id:string
+    }
+}
+
+export default async function SnippetShowPage(props:SnippetShowPageProps) {
+    const snippet = await db.snippet.findFirst({
+        where: {
+            id: parseInt(props.params.id)
+        }
+    });
+    if(!snippet){
+        return notFound();
+    }
+    return (
+        <div>
+            {snippet.title}
+        </div>
+    )
+
+}
+```
+
+## Custom Not Found Pages
+- We have some special file names in the "app" folder
+- ![img_33.png](img_33.png)
+- We will create a not-found.tsx file inside the [id] folder like this
+```js
+export default async function NotFound(){
+    return (<div>
+        <h1 className="text-xl bold">
+            Sorry, we could not find that particular snippet!
+        </h1>
+    </div>)
+}
+```
+- Now from our component inside [id]/page.tsx when we call the function return notFound() we will be navigated to the not-found.tsx page.
+
+## Automatic Loading Spinners
+- We have a special file loading.tsx
+- This is displayed when a server component is fetching some data.
+```js
+export default function SnippetShowLoadingPage(){
+    return <div>Loading...</div>
+}
+```
+## Creating a snippet edit page
+- ![img_34.png](img_34.png)
+- Inside the [id] folder create a new folder called edit and add a page.tsx inside of it.
+- We can pass the params to the edit page when we navigate to : "http://localhost:3000/snippets/2/edit"
+```js
+
+type SnippetEditPageProps = {
+    params:{
+        id:string
+    }
+}
+export default function SnippetEditPage(props:SnippetEditPageProps) {
+      const id = parseInt(props.params.id);
+      return (
+          <div>
+              Edit snippet with id: {id}
+          </div>
+      )
+}
+```
+## Showing a client component inside a server component
+- ![img_35.png](img_35.png)
+- Since inside the edit page we need to do data fetching using async await keywords, we cannot make it a client component.
+- ![img_36.png](img_36.png)
+- We will create a client component called SnippetEditForm, and we will pass the snippet down from our server component to the client component as a prop.
+- This client component will set up state and event handlers to work with Monaco Editor
+- Client components are rendered on the server the first time and a second request will come in from the browser and load up all the javascript required to attach all the hooks and event handlers.
+- We can have a server component like this:
+```js
+import {db} from "@/db"
+import {notFound} from "next/navigation";
+import SnippetEditForm from "@/components/SnippetEditForm";
+
+type SnippetEditPageProps = {
+    params:{
+        id:string
+    }
+}
+export default async function SnippetEditPage(props:SnippetEditPageProps) {
+      const id = parseInt(props.params.id);
+      const snippet = await db.snippet.findFirst({
+          where: {
+              id:id
+          }
+      });
+
+      if(!snippet){
+          return notFound();
+      }
+
+      return (
+          <div>
+             <SnippetEditForm snippet={snippet} />
+          </div>
+      )
+}
+```
+- We will have a client component SnippetEditForm like this:
+```js
+'use client'
+import type {Snippet} from "@prisma/client";
+
+type SnippetEditFormProps = {
+    snippet: Snippet;
+}
+export default function SnippetEditForm({snippet}: SnippetEditFormProps) {
+    return (
+        <div>
+            Client component has snippet with title: {snippet.title}
+        </div>
+    )
+}
+```
+
+## Adding state inside the Client Component 
+- Inside our snippet edit form client component, we can use the monaco editor and whenever the value of snippet code changes, we need to hold it in a useState() hook like this:
+- Note that the snippet is being passed to us as a prop from the server component.
+```js
+'use client'
+import type {Snippet} from "@prisma/client";
+import {Editor} from "@monaco-editor/react";
+import {useState} from "react";
+
+type SnippetEditFormProps = {
+    snippet: Snippet;
+}
+export default function SnippetEditForm({snippet}: SnippetEditFormProps) {
+
+    const [code,setCode] = useState(snippet.code);
+    const handleEditorChange = (value:string = "") =>{
+        console.log(value)
+        setCode(value);
+    }
+    
+    return (
+        <div>
+           <Editor
+               theme="vs-dark"
+               language="javascript"
+               defaultValue={snippet.code}
+               height="40vh"
+               options={{
+                   minimap:{enabled:false},
+               }}
+               onChange={handleEditorChange}
+               />
+        </div>
+    )
+}
+```
+- Now once we have the code in a state variable, we need to update the snippet code in the database. Hence, we may need to call a server action
+
+## Using Server Actions in Next.js Client Components
