@@ -656,3 +656,212 @@ export default function SnippetEditForm({snippet}: SnippetEditFormProps) {
 - Now once we have the code in a state variable, we need to update the snippet code in the database. Hence, we may need to call a server action
 
 ## Using Server Actions in Next.js Client Components
+- Saving and changing data is done using Server Actions
+- Server Actions cannot be defined inside Client Components
+- ![img_37.png](img_37.png)
+- To use Server Actions in a Client Component, we can either export them from a separate file with "use server" at the top, or pass them down through props from a Server Component.
+- ![img_38.png](img_38.png)
+- ![img_39.png](img_39.png)
+- Server components cant pass event handlers down to client components: this is one exception
+- ![img_40.png](img_40.png)
+- ![img_41.png](img_41.png)
+- Option #2 is preferred where we define our server actions in a separate file and import it into Client Component
+- It promotes code reuse.
+
+## Server Actions in a separate file
+- In src folder, make a new folder called actions and add a file index.ts 
+- Here we will define our server actions
+- To call a server action from a client component, first import it.
+- We can import it as:
+```js
+import * as actions from "@/actions";
+```
+- This way if we write action.editSnippet() we can access all actions inside that index.ts file
+
+## Options for calling Server Actions from Client Component
+- Option # 1
+- ![img_42.png](img_42.png)
+- We use the bind function to bind our state to the server action.
+- We can then use a form and submit it.
+- ![img_43.png](img_43.png)
+- Option # 2
+- ![img_44.png](img_44.png)
+- Here we don't use a form, there is no formdata, so only the arguments passed directly to server action are received.
+- ![img_45.png](img_45.png)
+- Here we use startTransition hook
+- startTransition() makes sure we don't navigate away before our data actually has been updated.
+- The useTransition hook is a React hook that enables you to create non-blocking updates in your application, which can greatly improve the user experience by keeping your interface responsive during transitions.
+- While this hook isn't specific to Next.js, it's a part of React's core that you can use in any React-based application, including those built with Next.js.
+- The useTransition hook allows you to mark state updates as transitions, which are lower-priority updates. This can be useful when you want to avoid blocking user interactions with high-priority updates, such as typing in an input field or clicking a button.
+```js
+//Api logic
+// pages/api/action.js
+export default function handler(req, res) {
+    if (req.method === 'POST') {
+        const { data } = req.body;
+        // Perform some server-side action with data
+        res.status(200).json({ message: `Processed data: ${data}` });
+    } else {
+        res.status(405).json({ message: 'Method Not Allowed' });
+    }
+}
+
+
+
+//Server Action
+// lib/actions.ts
+export async function serverAction(data: string) {
+    const response = await fetch('/api/action', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data }),
+    });
+    return response.json();
+}
+
+
+//Client Component
+import { useState } from 'react';
+import { serverAction } from '../lib/actions';
+
+const MyComponent = () => {
+  const [data, setData] = useState('');
+  const [message, setMessage] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const result = await serverAction(data);
+    setMessage(result.message);
+  };
+
+  return (
+    <div>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          value={data}
+          onChange={(e) => setData(e.target.value)}
+          placeholder="Enter some data"
+        />
+        <button type="submit">Submit</button>
+      </form>
+      {message && <p>{message}</p>}
+    </div>
+  );
+};
+
+export default MyComponent;
+
+```
+- ![img_46.png](img_46.png)
+- Option #1 is generally preferred even by Next.js documentation where we use a form
+- So to demonstrate how Option #1 using a form and a bind() function, we first make changes in our actions/index.ts file 
+```js
+export async function editSnippet(id:number, code:string){
+    console.log(id,code);
+}
+```
+- Now we make changes inside our client component:
+```js
+'use client'
+import type {Snippet} from "@prisma/client";
+import {Editor} from "@monaco-editor/react";
+import {useState} from "react";
+import * as actions from "@/actions";
+
+type SnippetEditFormProps = {
+    snippet: Snippet;
+}
+export default function SnippetEditForm({snippet}: SnippetEditFormProps) {
+
+    const [code,setCode] = useState(snippet.code);
+    const handleEditorChange = (value:string = "") =>{
+        console.log(value)
+        setCode(value);
+    }
+
+    const editSnippetAction = actions.editSnippet.bind(null,snippet.id,code);
+
+    return (
+        <div>
+           <Editor
+               theme="vs-dark"
+               language="javascript"
+               defaultValue={snippet.code}
+               height="40vh"
+               options={{
+                   minimap:{enabled:false},
+               }}
+               onChange={handleEditorChange}
+               />
+            <form action={editSnippetAction}>
+                <button type="submit" className="p-2 border rounded">Save</button>
+            </form>
+        </div>
+    )
+}
+```
+
+## Deleting a snippet
+- First we will create an action inside our actions.ts file like this 
+```js
+export async function deleteSnippet(id:number){
+    await db.snippet.delete({
+        where:{id:id}
+    });
+
+    redirect('/');
+}
+```
+- Next we will call the snippet this action from our [id]/page.tsx file like this
+```js
+import {db} from "@/db"
+import {notFound} from "next/navigation";
+import Link from "next/link";
+import * as actions from "@/actions";
+
+type SnippetShowPageProps = {
+    params:{
+        id:string
+    }
+}
+
+export default async function SnippetShowPage(props:SnippetShowPageProps) {
+
+    //Add some artificial delay
+    await new Promise((r)=>setTimeout(r,2000))
+
+
+    const snippet = await db.snippet.findFirst({
+        where: {
+            id: parseInt(props.params.id)
+        }
+    });
+    if(!snippet){
+        return notFound()
+    }
+
+    const handleDeleteAction = actions.deleteSnippet.bind(null,snippet.id)
+    return (
+        <div>
+            <div className="flex m-4 justify-between items-center">
+                <h1 className="text-xl font-bold">{snippet.title}</h1>
+                <div className="flex gap-4">
+                    <Link href={`/snippets/${snippet.id}/edit`} className="p-2 border rounded">Edit</Link>
+                    <form action={handleDeleteAction}>
+                        <button  className="p-2 border rounded">Delete</button>
+                    </form>
+                </div>
+            </div>
+            <pre className="p-3 border rounded bg-grey-200 border-gray-200">
+                <code>{snippet.code}</code>
+            </pre>
+        </div>
+    )
+
+}
+```
+- The good thing about using the bind() function approach, is that even if the user has disabled javascript inside their browser, it will still work.
+- 
