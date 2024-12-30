@@ -1074,6 +1074,8 @@ export async function createSnippet(formState:{message:string}, formData:FormDat
 - Then we can run our project in production mode using npm run start
 - However, when we run the app in production mode and create a snippet, the snippet is displayed in the list of snippets on the main page.
 - However, when we refresh, the newly created snippet disappears. This is because of Next.js Full Route Caching.
+- Note that our home route (/) is pre-rendered as static content.
+- ![img_55.png](img_55.png)
 - ![img_53.png](img_53.png)
 - Next.js implements caching in several locations
 - It can lead to unexpected behavior.
@@ -1082,3 +1084,159 @@ export async function createSnippet(formState:{message:string}, formData:FormDat
 - In Production, users are given this pre-rendered result
 - ![img_54.png](img_54.png)
 - Next.js assumes our homepage route is static.
+- Since it is static, next is going to implement really aggressive caching on this route.
+- Our homepage has some code which gets a list of snippets, Next.js will execute this code, get the snippets, render the HTML and serve it to everyone who navigates to this homepage route.
+- This default behavior is not appropriate as each user should see the updated list of snippets.
+- We will have to configure this.
+
+## What makes a static or Dynamic Route in Next.js
+- ![img_56.png](img_56.png)
+- ![img_57.png](img_57.png)
+- Bullet point indicates static page.
+- Lambda indicates dynamic page.
+- All pages by default in Next.js are static pages.
+- In order to become dynamic pages, we have to do few different things inside the route.
+- ![img_58.png](img_58.png)
+- Any route with a wildcard like [id] is a dynamic route.
+- We can also force a route to become dynamic by writing this at top of the page:
+```js
+export const dynamic = "force-dynamic"
+```
+- A static route is not the worst thing in the world. We need caching!
+- But our data even if cached, will change. We need to invalidate and force the cache to update.
+
+## When to use cache control
+- ![img_59.png](img_59.png)
+- **Time based Caching**
+- ![img_60.png](img_60.png)
+```js
+//Every 3 seconds, the next request that comes in will trigger a re-render of our page. For the next 3 seconds, the cached version will be served up
+//Revalidate is a reserved keyword
+export const revalidate = 3;
+```
+- **On Demand Caching**
+- ![img_61.png](img_61.png)
+- At certain points of time, if we are certain that data used by some path has changed, we can revalidate the cache like this
+- This tell Next.js that we want to dump the cached version of the page, and that everytime someone makes a request, we should re-render the page from scratch
+```js
+import {revalidatePath} from "next/cache"
+//When we thik data that the '/snippets'
+//route uses has changed...
+revalidatePath('/snippets')
+```
+- **Disable Caching**
+- ![img_62.png](img_62.png)
+
+- **There are specific use cases for each type of caching**
+- ![img_63.png](img_63.png)
+- ![img_64.png](img_64.png)
+- ![img_65.png](img_65.png)
+
+## Using revalidatePath() in server actions page
+```js
+import {revalidatePath} from "next/cache";
+
+
+export async function deleteSnippet(id:number){
+    await db.snippet.delete({
+        where:{id:id}
+    });
+
+    //Revalidate the cached version of homepage
+    revalidatePath('/');
+    redirect('/');
+}
+
+export async function createSnippet(formState:{message:string}, formData:FormData){
+    const errorText: { message: string } = {message: ""}
+    // This needs to be a server action
+    //Special directive used by Next.js
+    //'use server';
+    //Check the user's inputs and make sure they are valid
+    //Typescript knows that whenever we want to get some data from a form, it is of type FormDataEntryValue so we cast it as string
+    try {
+        const title = formData.get('title');
+        const code = formData.get('code');
+
+
+
+        if (typeof title !== 'string' || title.length < 3) {
+            errorText.message = 'Title must be longer and should be a string';
+        }
+
+        if (typeof code !== 'string' || code.length < 10) {
+            errorText.message += "/n" + 'Code must be longer and should be a string';
+        }
+
+
+
+        //Create a new record in the database
+        await db.snippet.create({
+            data:{
+                title: title as string,
+                code: code as string
+            }
+        });
+    }
+    catch (error: unknown) {
+        if(error instanceof Error){
+            errorText.message += error.message;
+        } else {
+            errorText.message += "Something went wrong";
+        }
+    }
+
+    if (errorText.message.length > 0) {
+        return errorText;
+    }
+
+    //Revalidate the cached version of homepage
+    revalidatePath('/');
+
+    // Redirect the user back to the root route
+    redirect('/');
+}
+```
+
+## Enabling Caching with GenerateStaticParams
+- ![img_66.png](img_66.png)
+- 2 of our paths were marked as dynamic because they have a wildcard path in their URL
+- This is not the best thing in the world. We lose on the benefit of caching.
+- We can use a function called GenerateStaticParams() here to implement some sort of caching even for our dynamic paths.
+- ![img_67.png](img_67.png)
+- ![img_68.png](img_68.png)
+- GenerateStaticParams() is a function that will run and go to the database and fetch all the ids for the snippets and generate an array of these IDs.
+- Remember, these IDs are used to generate the dynamic page: [id]
+- So this function is going to generate different URLs based on the IDs fetched from the database and cache the result of those URLs
+- So we can cache some of these pages even though they are supposed to be dynamic.
+
+## Caching Dynamic Routes
+- Go to [id]/page.tsx and write this function
+```js
+export async function generateStaticParams(){
+    const snippets = await db.snippet.findMany();
+    return snippets.map((snippet)=>{
+        return {
+            id: snippet.id.toString(),
+        };
+    })
+}
+```
+- Now run npm run build
+- ![img_69.png](img_69.png)
+- As we can see Next.js has made cached version of our snippet pages which is pre-rendered as static HTML
+- However, if we edit the page, we now face the same problem, we don't get the latest output, so we need to revalidate it.
+- We can go back to our edit Snippet action and change it as follows:
+```js
+export async function editSnippet(id:number, code:string){
+    await db.snippet.update({
+        where:{id:id},
+        data: {code:code}
+    });
+
+    revalidatePath(`/snippets/${id}`);
+    redirect(`/snippets/${id}`);
+}
+```
+
+

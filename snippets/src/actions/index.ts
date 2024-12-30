@@ -2,6 +2,7 @@
 
 import {db} from "@/db"
 import {redirect} from "next/navigation";
+import {revalidatePath} from "next/cache";
 
 export async function editSnippet(id:number, code:string){
     await db.snippet.update({
@@ -9,6 +10,7 @@ export async function editSnippet(id:number, code:string){
         data: {code:code}
     });
 
+    revalidatePath(`/snippets/${id}`);
     redirect(`/snippets/${id}`);
 }
 
@@ -17,6 +19,8 @@ export async function deleteSnippet(id:number){
         where:{id:id}
     });
 
+    //Revalidate the cached version of homepage
+    revalidatePath('/');
     redirect('/');
 }
 
@@ -62,6 +66,9 @@ export async function createSnippet(formState:{message:string}, formData:FormDat
     if (errorText.message.length > 0) {
         return errorText;
     }
+
+    //Revalidate the cached version of homepage
+    revalidatePath('/');
 
     // Redirect the user back to the root route
     redirect('/');
