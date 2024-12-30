@@ -1070,3 +1070,15 @@ export async function createSnippet(formState:{message:string}, formData:FormDat
 - So we don't want to put our redirect() function inside a try-catch statement, always put it outside.
 
 ## Next.js Caching System
+- We can build our application by running npm run build
+- Then we can run our project in production mode using npm run start
+- However, when we run the app in production mode and create a snippet, the snippet is displayed in the list of snippets on the main page.
+- However, when we refresh, the newly created snippet disappears. This is because of Next.js Full Route Caching.
+- ![img_53.png](img_53.png)
+- Next.js implements caching in several locations
+- It can lead to unexpected behavior.
+- When we build our application for production, we have Full Route caching system
+- Here at build time, Next.js decides whether your route is static or dynamic. If it is static, page is rendered and result is stored.
+- In Production, users are given this pre-rendered result
+- ![img_54.png](img_54.png)
+- Next.js assumes our homepage route is static.
