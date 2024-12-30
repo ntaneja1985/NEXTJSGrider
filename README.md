@@ -864,4 +864,209 @@ export default async function SnippetShowPage(props:SnippetShowPageProps) {
 }
 ```
 - The good thing about using the bind() function approach, is that even if the user has disabled javascript inside their browser, it will still work.
-- 
+
+## Server Forms with the UseFormState() hook
+- ![img_47.png](img_47.png)\
+- We can useFormState hook to communicate information from the server action back to the page.
+- Remember a good thing about forms is that they can work without JS in the browser.
+- We should get our page rendered again with some error message being displayed
+- useFormState is a hook in React-DOM. 
+- It can only be used with a client component.
+- Remember client components are rendered once on the server, but they allow us to run Javascript in the browser.
+- ![img_48.png](img_48.png)
+- We will send useFormState along with FormData to the server action.
+- Server communicate will add some information to the FormState and send it back to the client component
+- Client component will re-render once it receives the FormState object, and it can display error messages if there are any in the FormState object.
+
+## Changes in Next.js v15
+- In the Next.js v15, useFormState() has been changed to useActionState()
+
+## Implementing useFormState hook
+- Note that we are going to turn our new snippet component inside new/page.tsx into a client component
+- We will pass an initial object of formState to the server action and get back an object which has error message inside of it.
+- Use the useFormState hook in a client component to handle form submissions and call the server action.
+- We will move the createSnippet() function inside a server action like this
+```js
+export async function createSnippet(formState:{message:string}, formData:FormData) {
+    return {
+        message: 'Title must be longer'
+    }
+}
+```
+- Now we will call this from our client component as follows:
+- Note that when we use the useFormState hook we pass the name of the server action as well as an initial object for formState.
+- This will contain the error message which will be returned inside the formState object along with a detailed server action which we can pass inside our form action
+```js
+'use client'
+import {useFormState} from 'react-dom'
+import * as actions from '@/actions'
+
+export default  function SnippetCreatePage(){
+    const [formState,action]= useFormState(actions.createSnippet,{message:''});
+
+
+    return(
+        <form action={action}>
+            <h3 className="font-bold m-3">Create a Snippet</h3>
+            <div className="flex flex-col gap-4">
+                <div className="flex gap-4">
+                    <label className="w-12" htmlFor="title">
+                        Title
+                    </label>
+                    <input
+                        name="title"
+                        className="border rounded p-2 w-full"
+                        id="title"
+                    />
+                </div>
+                <div className="flex gap-4">
+                    <label className="w-12" htmlFor="code">
+                        Code
+                    </label>
+                    <textarea
+                        name="code"
+                        className="border rounded p-2 w-full"
+                        id="code"
+                    />
+                </div>
+                <div>
+                    {formState.message}
+                </div>
+                <button type="submit" className="rounded p-2 bg-blue-200">
+                    Create
+                </button>
+            </div>
+        </form>
+    )
+}
+```
+
+## Breaking changes in Forms in React 19
+- Forms are now reset after submission by default. 
+- We will need to make a few major adjustments to the code that will mitigate the resetting of the form
+- In src/app/snippets/new/page.tsx:
+
+1. import the startTransition hook
+```js
+import { useActionState, startTransition } from "react";
+```
+2. Create a handleSubmit function
+
+```js
+function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+event.preventDefault();
+const formData = new FormData(event.currentTarget);
+startTransition(() => {
+action(formData);
+});
+}
+```
+3. Pass the new handleSubmit function to the onSubmit prop to opt out of the form reset
+```js
+<form onSubmit={handleSubmit}>
+```
+
+## Adding the Form Validation
+```js
+export async function createSnippet(formState:{message:string}, formData:FormData){
+
+    // This needs to be a server action
+    //Special directive used by Next.js
+    //'use server';
+    //Check the user's inputs and make sure they are valid
+    //Typescript knows that whenever we want to get some data from a form, it is of type FormDataEntryValue so we cast it as string
+    const title = formData.get('title');
+    const code = formData.get('code');
+
+    const errorText : {message: string} = {message:""}
+
+    if(typeof title !== 'string' || title.length < 3){
+        errorText.message = 'Title must be longer and should be a string';
+    }
+
+    if(typeof code !== 'string' || code.length < 10){
+        errorText.message+= "/n" + 'Code must be longer and should be a string';
+    }
+
+    if(errorText.message.length >0){
+        return errorText;
+    }
+
+    //Create a new record in the database
+    const snippet = await db.snippet.create({
+        data:{
+            title: title as string,
+            code: code as string
+        }
+    });
+
+    // Redirect the user back to the root route
+    redirect('/');
+}
+```
+- For error handling we have a special filename: error.tsx. This is useful for unhandled exceptions.
+- ![img_49.png](img_49.png)
+- The error file must be a client component.
+- However, there is a big downside to this error file. The user doesn't have the ability to resubmit the form after fixing the error or try again.
+- What we can do is that instead of throwing error inside our server action, we catch the error and populate it inside the formState object and send it back to the client or the browser.
+- We can do something like this to catch the error, populate the formState object and send it back to the client
+```js
+export async function createSnippet(formState:{message:string}, formData:FormData){
+    const errorText: { message: string } = {message: ""}
+    // This needs to be a server action
+    //Special directive used by Next.js
+    //'use server';
+    //Check the user's inputs and make sure they are valid
+    //Typescript knows that whenever we want to get some data from a form, it is of type FormDataEntryValue so we cast it as string
+    try {
+        const title = formData.get('title');
+        const code = formData.get('code');
+
+
+
+        if (typeof title !== 'string' || title.length < 3) {
+            errorText.message = 'Title must be longer and should be a string';
+        }
+
+        if (typeof code !== 'string' || code.length < 10) {
+            errorText.message += "/n" + 'Code must be longer and should be a string';
+        }
+
+
+
+        // //Create a new record in the database
+        // const snippet = await db.snippet.create({
+        //     data:{
+        //         title: title as string,
+        //         code: code as string
+        //     }
+        // });
+
+        throw new Error("Failed to create a new snippet");
+    }
+    catch (error: unknown) {
+        if(error instanceof Error){
+            errorText.message += error.message;
+        } else {
+            errorText.message += "Something went wrong";
+        }
+    }
+
+    if (errorText.message.length > 0) {
+        return errorText;
+    }
+
+    // Redirect the user back to the root route
+    redirect('/');
+}
+```
+- ![img_50.png](img_50.png)
+## Interesting thing about redirect function
+- ![img_51.png](img_51.png)
+- If we use a redirect() function inside a try-catch block, then we are going to see something like this
+- ![img_52.png](img_52.png)
+- This is because when the compiler sees redirect, it actually throws an error but then Next.js understands that this is not an error and user is just being redirected, and it works fine, but if put inside a try-catch block, error is thrown.
+- catch statement captures the error
+- So we don't want to put our redirect() function inside a try-catch statement, always put it outside.
+
+## Next.js Caching System
