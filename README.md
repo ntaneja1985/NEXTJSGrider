@@ -1239,4 +1239,325 @@ export async function editSnippet(id:number, code:string){
 }
 ```
 
+## Authentication with Next-Auth
+- ![img_70.png](img_70.png)
+- We will use 3 critical libraries: Prisma, Next UI(Component library that works with tailwind CSS),Next-Auth(or authJS)- used to handle everything related to authentication
+- To sign in users, we will use GitHub OAuth
+- Important Note: While installing NextUI and Framer Motion for Next.js 15, we will need to add the --legacy-peer-deps flag to the install command. This is because these libraries are not yet entirely compatible with React 19.
+```shell
+npm install @nextui-org/react framer-motion --legacy-peer-deps
+```
+- Installing Next UI
+```shell
+npm install @nextui-org/react framer-motion 
+```
+- If we go to tailwind.config.ts, we need to first import NextUI
+- We also see this code:
+```js
+content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./node_modules/@nextui-org/theme/dist/**/*.{js,ts,jsx,tsx}",
+  ],
+```
+- This is telling tailwind where to find various classnames we are using inside our project.
+- For e.g we are telling tailwind to go inside app directory and find the different Javascript files inside there.
+- Same with the components directory
+- We also ask Tailwind to go into the nextui directory and find all the classnames
+- We will also create a file Providers.tsx inside the app directory
+```js
+'use client'
+
+import {NextUIProvider} from "@nextui-org/react";
+
+type ProvidersProps = {
+    children: React.ReactNode;
+}
+
+export default function Providers({children}: ProvidersProps) {
+    return (
+        <NextUIProvider>
+            {children}
+        </NextUIProvider>
+    )
+}
+```
+### So why do we need to add Providers.tsx file ? 
+- There are many components inside NextUI that require state to work correctly.
+- All the state is coordinated across your application using react context.
+- This next UI provider thing right here, that is kind of the mechanism that's sharing all this state throughout all the different next UI components that we are using.
+- So this is going to be used by things like say modals and whatnot to make sure that different events, different pieces of state are shared across all these different components that we are using.
+- Now we need to add this Providers component inside layouts.tsx file
+```js
+import Providers from "@/app/Providers";
+
+export default function RootLayout({
+                                       children,
+                                   }: Readonly<{
+    children: React.ReactNode;
+}>) {
+    return (
+        <html lang="en">
+            <body
+                className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+            >
+                <Providers>
+                    {children}
+                </Providers>
+            </body>
+        </html>
+    );
+}
+```
+- Now to test this we can go to app/page.tsx and add this code:
+```js
+import {Button} from '@nextui-org/react'
+
+export default function Home() {
+  return (
+  <div>
+    <Button>Click Me!!!!</Button>
+  </div>
+  );
+}
+
+```
+- We will see a button that is nicely styled.
+
+## Installing Prisma
+- We will run the following commands:
+```shell
+npm install prisma
+npx prisma init --datasource-provider sqlite
+```
+- We have a new folder called prisma inside our application, and it contains a file called schema.prisma
+- This file tells Prisma about different kinds of data or different structures we want to have inside our database as well.
+- Now once we have our schema.prisma we can run our migrations using this command
+```shell
+npx prisma migrate dev
+```
+- This will run the migrations and install a sqlite db called dev.db inside our application.
+
+## Installing Nex-Auth for Next.js 15
+- We need to run this command for Next.js 15:
+```shell
+npm install @auth/core @auth/prisma-adapter next-auth@beta
+```
+## OAuth Setup
+- ![img_71.png](img_71.png)
+- ![img_72.png](img_72.png)
+- We will use Github OAuth so we will have sign in with Github button inside our application.
+- We will go to this link: https://github.com/settings/applications/new and register a new OAuth App
+- We will generate new client id and client secret and save it inside an .env.local file inside our application
+- We will now install Next-Auth packages with this command:
+```shell
+npm install --save-exact @auth/core@0.18.1 @auth/prisma-adapter@1.0.6 next-auth@5.0.0-beta.3
+```
+## Next-Auth Setup
+- Make an auth.ts file in the 'src' folder. Setup NextAuth and the Prisma Adapter in there.
+```js
+import NextAuth from "next-auth";
+import GitHub from 'next-auth/providers/github';
+import {PrismaAdapter} from "@auth/prisma-adapter";
+import {db} from '@/db';
+
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID;
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+
+if(!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
+    throw new Error('Missing github oauth credentials');
+}
+
+//Here GET, POST are used by Github and auth object determines whether our user is signed in or not.
+export const {handlers:{GET,POST},auth,signOut,signIn}= NextAuth({
+ adapter: PrismaAdapter(db),
+ providers: [
+     GitHub({
+         clientId: GITHUB_CLIENT_ID,
+         clientSecret: GITHUB_CLIENT_SECRET,
+     })
+ ],
+ callbacks:{
+     //Usually not needed, here we are fixing a bug in NextAuth
+     async session({session,user}){
+         if(session && user && session.user){
+             //Bug is that the user property of session object doesnot get the id property assigned to them, so we need to assign it here manually
+             session.user.id = user.id
+         }
+         return session;
+     }
+ }
+})
+```
+- Setup app/api/auth/[...nextauth]/route.ts to handle requests between github servers and ours.
+- route.ts is a specially named file. We can export functions from it like GET() and POST()
+- These implement api request handlers inside of our app.
+- So if we have some outside web-service that needs to talk to our web application, we can create a route handler like this to build a GET Request handlers and a POST request handler.
+- If we are using react code within a next app directly, we dont need these GET and POST handlers. We always have server actions to perform CRUD operations
+- These handlers are only required when we have some outside server that needs to access our app programmatically.
+- That is what is required here. 
+- The Github servers are going to try and reach out to our application to handle authentication at specific points in time.
+- We will get these GET and POST handlers that are being returned from NextAuth() function above
+```js
+export {GET,POST} from '@/auth'
+```
+## How OAuth works in general
+- User clicks on Signup button inside of our application
+- Browser makes request to our backend server
+- We redirect him to GitHub server
+- In that redirection we include our client ID 
+- ![img_73.png](img_73.png)
+- GitHub presents a page where GitHub asks whether they are OK with sharing information with our application
+- If the user clicks yes, they get redirected to our server with an authorization code
+- ![img_74.png](img_74.png)
+- Remember, this is the same authorization callback URL we had specified when we were registering our OAuth App with Github
+- Our server takes the authorization code and makes a followup request to GitHub
+- ![img_75.png](img_75.png)
+- GGithub makes sure that the clientID, clientSecret and authorization code are valid and responds with an 'access token'
+- ![img_76.png](img_76.png)
+- We make another request with the access token to get details about the user like name, email etc.
+- ![img_77.png](img_77.png)
+- GitHub responds with user's profile.
+- ![img_78.png](img_78.png)
+- We create a new 'User' record in the database.
+- We send a cookie back to the user's browser which will be included with all future request automatically.
+- That cookie tells us who is making the request to our server( HttpOnly Cookie)
+- All the above stuff is handled automatically with NextAuth(). We just need to make sure our callback URL is correct.
+
+## Server Actions to SignIn/Signout the User
+- Inside of auth.ts file, we are already export signIn, signOut actions from NextAuth() function.
+- We just need to wrap them inside server actions.
+- This can be done by creating a file inside src/actions called index.ts 
+```js
+'use server'
+import * as auth from "@/auth";
+
+export async function signIn(){
+    return auth.signIn('github');
+}
+export async function signOut(){
+    return auth.signOut();
+}
+```
+## SignIn, Signout and checking Auth Status
+- ![img_79.png](img_79.png)
+- ![img_80.png](img_80.png)
+- ![img_81.png](img_81.png)
+- ![img_82.png](img_82.png)
+- To test this out we can go inside our app/page.tsx and write the following code:
+```js
+import {Button} from '@nextui-org/react'
+import * as actions from '@/actions'
+import {auth} from "@/auth";
+
+export default async function Home() {
+
+    const session = await auth();
+
+    return (
+      <div>
+        <form action={actions.signIn}>
+          <Button type="submit">Sign In</Button>
+        </form>
+
+        <form action={actions.signOut}>
+          <Button type="submit">Sign Out</Button>
+        </form>
+
+          {
+              session?.user ? <div>{JSON.stringify(session.user)}</div>: <div>Signed Out</div>
+          }
+      </div>
+  );
+}
+
+```
+- For client components, we first need to set up a session provider inside our providers.tsx file.
+- This uses React's context system to share information whether or not user is signed in across all client components in our application.
+- Inside our Providers.tsx file, we need to make these changes
+```js
+'use client'
+
+import {NextUIProvider} from "@nextui-org/react";
+import {SessionProvider} from "next-auth/react";
+
+type ProvidersProps = {
+    children: React.ReactNode;
+}
+
+export default function Providers({children}: ProvidersProps) {
+    return (
+        <SessionProvider>
+        <NextUIProvider>
+            {children}
+        </NextUIProvider>
+        </SessionProvider>
+    )
+}
+```
+- Now we can use a new hook called useSession() inside our client components.
+```js
+'use client'
+
+import {useSession} from "next-auth/react";
+
+export default function Profile() {
+    const session = useSession();
+    if(session?.data?.user) {
+        return <div>From client: {JSON.stringify(session.data.user)}</div>
+    }
+
+    return <div>From client: user is NOT signed in</div>
+}
+```
+- We will call this component Profile inside out app/page.tsx
+```js
+import {Button} from '@nextui-org/react'
+import * as actions from '@/actions'
+import {auth} from "@/auth";
+import Profile from "@/components/profile";
+
+export default async function Home() {
+
+    const session = await auth();
+
+    return (
+      <div>
+        <form action={actions.signIn}>
+          <Button type="submit">Sign In</Button>
+        </form>
+
+        <form action={actions.signOut}>
+          <Button type="submit">Sign Out</Button>
+        </form>
+
+          {
+              session?.user ? <div>{JSON.stringify(session.user)}</div>: <div>Signed Out</div>
+          }
+
+          <Profile />
+      </div>
+  );
+}
+
+```
+- We can see the results like this
+- ![img_83.png](img_83.png)
+
+## Upfront Design Process
+- ![img_84.png](img_84.png)
+- Caching process is really challenging because of Full Route Cache.
+- We should handle it upfront and not leave it for the very end.
+- ![img_85.png](img_85.png)
+- We usually call our wildcards are slugs
+- First we can set up our route information like this
+- ![img_86.png](img_86.png)
+
+## Using Path Helpers
+
+
+
+
+
 
