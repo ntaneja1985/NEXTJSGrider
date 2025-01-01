@@ -1555,6 +1555,609 @@ export default async function Home() {
 - ![img_86.png](img_86.png)
 
 ## Using Path Helpers
+- ![img_87.png](img_87.png)
+- ![img_88.png](img_88.png)
+- ![img_89.png](img_89.png)
+- ![img_90.png](img_90.png)
+- ![img_91.png](img_91.png)
+- What if we want to change all the paths in our application ?
+- We will have to modify all of our links. This is quite cumbersome.
+- Instead, we make path helper functions
+- ![img_92.png](img_92.png)
+- ![img_93.png](img_93.png)
+- Path Helpers are useful in midsize or largesize projects
+- Inside our src directory we can create a file: paths.ts with code like this:
+```js
+const paths = {
+    homePath(){
+        return '/';
+    },
+    topicShow(topicSlug: string){
+        return `/topics/${topicSlug}`;
+    },
+    postCreate(topicSlug: string){
+        return `/topics/${topicSlug}/posts/new`;
+    },
+    postShow(topicSlug: string, postId:string){
+        return `/topics/${topicSlug}/posts/${postId}`;
+    }
+};
+
+export default paths;
+```
+
+## Setting up the Routing Structure
+- ![img_94.png](img_94.png)
+- ![img_95.png](img_95.png)
+
+## Creating empty server actions where data changes in our app
+- ![img_96.png](img_96.png)
+- Create a Topic, Create a Post, Create a Comment on a Post are placed where we change the data in our app
+- We can create server actions for each of these
+- We will create these server actions in separate files and export them from index.ts like this
+```js
+
+export {createComment} from './create-comment'
+export {createPost} from './create-post'
+export {createTopic} from './create-topic'
+export {signIn} from './sign-in'
+export {signOut} from './sign-out'
+
+
+```
+- ![img_97.png](img_97.png)
+
+## Revalidation Strategies
+- ![img_98.png](img_98.png)
+- ![img_99.png](img_99.png)
+- Full Route cache needs special handling to not serve stale data to our users.
+- ![img_100.png](img_100.png)
+- For creating a topic, we need to revalidate home page as that has the list of topics
+- For creating a post, we need to revalidate topic show page and use time based cache control on the homepage as we dont need instant updates on the same.
+- For creating a comment, we only revalidate the show a post page.
+- We don't need to refresh our homepage every time any data changes.
+
+
+## Header Component
+- We can create the header component as follows:
+```js
+import Link from "next/link";
+import {
+    Navbar,
+    NavbarBrand,
+    NavbarItem,
+    NavbarContent,
+    Input,
+    Button,
+    Avatar,
+    Popover,
+    PopoverTrigger,
+    PopoverContent
+} from "@nextui-org/react";
+import {auth} from "@/auth";
+import * as actions from '@/actions'
+
+export default async function Header(){
+    const session = await auth();
+
+    let authContent:React.ReactNode;
+    if(session?.user)
+    {
+        authContent =
+            <Popover placement="left">
+                <PopoverTrigger>
+            <Avatar src={session.user.image || ''}/>
+                </PopoverTrigger>
+                <PopoverContent>
+                    <div className="p-4">
+                        <form action={actions.signOut}>
+                            <Button type="submit" color="secondary" variant="bordered">Sign Out</Button>
+                        </form>
+                    </div>
+                </PopoverContent>
+            </Popover>
+    } else{
+        authContent = <>
+            <NavbarItem>
+                <form action={actions.signIn}>
+            <Button type="submit" color="secondary" variant="bordered">Sign In</Button>
+                </form>
+            </NavbarItem>
+            <NavbarItem>
+                <form action={actions.signIn}>
+                    <Button type="submit" color="primary" variant="flat">Sign Up</Button>
+                </form>
+            </NavbarItem>
+        </>
+    }
+
+    return (
+        <Navbar className="shadow mb-6">
+            <NavbarBrand>
+                <Link href="/" className="font-bold">Discuss</Link>
+            </NavbarBrand>
+            <NavbarContent justify="center">
+                <NavbarItem>
+                    <Input/>
+                </NavbarItem>
+            </NavbarContent>
+
+            <NavbarContent justify="end">
+                    {authContent}
+            </NavbarContent>
+        </Navbar>
+    )
+}
+```
+- Full Route cache gives us unexpected results.
+- We want more static pages as they load up more quickly.
+
+## Some more caching issues
+- Now if we try to run npm run build, we see this
+- ![img_101.png](img_101.png)
+- We see no static pages and all of our pages are rendered as dynamic pages.
+- This is not good as our homepage for now just contains static content:
+```js
+export default  function Home() {
+   return <div>Home Page</div>
+}
+```
+- ![img_102.png](img_102.png)
+- Wildcard pages should be dynamic--> that is expected and makes sense
+- We can make them static using GenerateStaticParams()
+- But why is homepage dynamic? It only has static content
+- The culprit is this
+- ![img_103.png](img_103.png)
+- Right now on every page of our application, we are showing header component
+- Inside our header component, we are calling the auth() function to determine if user has signedIn
+- So NextAuth() is modifying cookies or reading them, so for homepage also is dynamic.
+- ![img_104.png](img_104.png)
+- We need to figure out some way to use authentication in the header component but also render the homepage as a static page.
+
+## Static Caching while using Authentication
+- ![img_105.png](img_105.png)
+- We want to render homepage statically.
+- ![img_106.png](img_106.png)
+- Solution is to move the authentication into a HeaderAuth Client Component and make use of useSession()
+- ![img_107.png](img_107.png)
+- useSession() doesnot directly access cookies, it makes a request to the backend to figure out the auth status.
+- No access of cookies ==== static!
+- So we will make a Header-Auth client component and use it inside our header component
+```js
+'use client'
+
+import {
+    NavbarItem,
+    Button,
+    Avatar,
+    Popover,
+    PopoverTrigger,
+    PopoverContent
+} from "@nextui-org/react";
+import {useSession} from "next-auth/react";
+import * as actions from '@/actions'
+
+export default function HeaderAuth(){
+    const session = useSession();
+
+    let authContent:React.ReactNode;
+    if(session.status === "loading")
+    {
+        authContent = null;
+    }
+    else if(session.data?.user)
+    {
+        authContent = (
+            <Popover placement="left">
+                <PopoverTrigger>
+                    <Avatar src={session.data.user.image || ''}/>
+                </PopoverTrigger>
+                <PopoverContent>
+                    <div className="p-4">
+                        <form action={actions.signOut}>
+                            <Button type="submit" color="secondary" variant="bordered">Sign Out</Button>
+                        </form>
+                    </div>
+                </PopoverContent>
+            </Popover>
+        )
+    } else{
+        authContent = (<>
+            <NavbarItem>
+                <form action={actions.signIn}>
+                    <Button type="submit" color="secondary" variant="bordered">Sign In</Button>
+                </form>
+            </NavbarItem>
+            <NavbarItem>
+                <form action={actions.signIn}>
+                    <Button type="submit" color="primary" variant="flat">Sign Up</Button>
+                </form>
+            </NavbarItem>
+        </>)
+    }
+
+    return authContent;
+}
+```
+- We will change Header Component to include the Header-Auth client component inside it
+```js
+import Link from "next/link";
+import {
+    Navbar,
+    NavbarBrand,
+    NavbarItem,
+    NavbarContent,
+    Input
+} from "@nextui-org/react";
+import HeaderAuth from "@/components/header-auth";
+
+
+export default function Header(){
+    return (
+        <Navbar className="shadow mb-6">
+            <NavbarBrand>
+                <Link href="/" className="font-bold">Discuss</Link>
+            </NavbarBrand>
+            <NavbarContent justify="center">
+                <NavbarItem>
+                    <Input/>
+                </NavbarItem>
+            </NavbarContent>
+
+            <NavbarContent justify="end">
+                    <HeaderAuth/>
+            </NavbarContent>
+        </Navbar>
+    )
+}
+```
+- Now if we run npm run build, we see the homepage being rendered as a static page
+- ![img_108.png](img_108.png)
+
+## Creating Topics
+- ![img_109.png](img_109.png)
+- We will create a component called topic-create-form and add code like this:
+```js
+import {
+    Input,
+    Button,
+    Textarea,
+    Popover,
+    PopoverContent,
+    PopoverTrigger
+} from "@nextui-org/react";
+
+import * as actions from "@/actions";
+
+export default function TopicCreateForm()
+{
+
+    return(
+        <Popover placement="left">
+            <PopoverTrigger>
+                <Button color="primary">Create a Topic</Button>
+            </PopoverTrigger>
+            <PopoverContent>
+                <form action={actions.createTopic}>
+                    <div className="flex flex-col gap-4 p-4 w-80">
+                        <h3 className="text-lg">Create a Topic</h3>
+                        <Input name="name" label="Name" labelPlacement="outside" placeholder="Name" />
+                        <Textarea name="description" label="Description" labelPlacement="outside" placeholder="Describe your topic" />
+                        <Button type="submit">Submit</Button>
+                    </div>
+                </form>
+            </PopoverContent>
+        </Popover>
+    )
+}
+```
+## Form Validation using zod library inside our server actions
+- ![img_110.png](img_110.png)
+- The Zod library is a TypeScript-first schema declaration and validation library. 
+- It's designed to help developers create schemas for data validation with static type inference, making it easier to work with complex data structures
+- Zero dependencies: Works in Node.js and modern browsers
+- Tiny size: Only 8kb minified and zipped
+- Immutable methods: Methods like .optional() return a new instance
+- Composable: Easily combine simpler types into complex data structures
+- To use zod we will create a schema object called createTopicSchema
+- When we create this schema object, we get back this validator thing called createTopicSchema validator. This can be used to validate data
+- zod contains a safeParse() function that will either return a success or will return an array of errors.
+- We can use zod library inside our server actions like this:
+```js
+'use server'
+import {z} from 'zod';
+
+const createTopicSchema = z.object({
+    name: z.string().min(3).regex(/^[a-z-]+$/,{message:"Must be lowercase letters or dashes without spaces"}),
+    description: z.string().min(10)
+});
+
+export  async function createTopic(formdata:FormData): Promise<void> {
+    const result = createTopicSchema.safeParse({
+        name:formdata.get('name'),
+        description:formdata.get('description'),
+    });
+
+    if(!result.success) {
+        console.log(result.error.flatten().fieldErrors)
+    }
+    //TODO: revalidate the homepage after creating the topic
+}
+```
+- We get the result like this:
+- ![img_111.png](img_111.png)
+- Now we can format the validation results and send it back to the user
+- We can use the hook useFormState() to send back error information
+- We can then use formState to display validation errors underneath each field using code like this:
+- ![img_112.png](img_112.png)
+- Remember in Next.js 15, we have useActionState instead of useFormState()
+
+## Fixing the useFormState type
+- ![img_113.png](img_113.png)
+- our formstate type should be something like this
+- ![img_114.png](img_114.png)
+- We will create a formState and modify our create topic server action as follows:
+```js
+type CreateTopicFormState = {
+    errors:{
+        name?:string[],
+        description?:string[]
+    }
+}
+
+export  async function createTopic(formState:CreateTopicFormState,formdata:FormData):Promise<CreateTopicFormState> {
+    const result = createTopicSchema.safeParse({
+        name:formdata.get('name'),
+        description:formdata.get('description'),
+    });
+
+    if(!result.success) {
+        return {
+            errors: result.error.flatten().fieldErrors
+        }
+    }
+
+    return {
+        errors:{}
+    };
+    //TODO: revalidate the homepage after creating the topic
+}
+```
+- Then we will modify our topic-create-form component like this
+```js
+'use client'
+import {
+    Input,
+    Button,
+    Textarea,
+    Popover,
+    PopoverContent,
+    PopoverTrigger
+} from "@nextui-org/react";
+import {useFormState} from 'react-dom';
+import * as actions from "@/actions";
+
+export default function TopicCreateForm()
+{
+    const [formState,action]= useFormState(actions.createTopic,{errors:{}});
+    return(
+        <Popover placement="left">
+            <PopoverTrigger>
+                <Button color="primary">Create a Topic</Button>
+            </PopoverTrigger>
+            <PopoverContent>
+                <form action={action}>
+                    <div className="flex flex-col gap-4 p-4 w-80">
+                        <h3 className="text-lg">Create a Topic</h3>
+                        <Input name="name" label="Name" labelPlacement="outside" placeholder="Name" />
+                        <Textarea name="description" label="Description" labelPlacement="outside" placeholder="Describe your topic" />
+                        <Button type="submit">Submit</Button>
+                    </div>
+                </form>
+            </PopoverContent>
+        </Popover>
+    )
+}
+```
+## Breaking changes in React 19/Next.js 15
+- Forms are now reset after submission by default.
+- We will need to make a few major adjustments to the code that will mitigate the resetting of the form.
+- import the startTransition hook
+```js
+import { useActionState, startTransition } from "react";
+```
+- Create a handleSubmit function
+```js
+function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    startTransition(() => {
+      action(formData);
+    });
+  }
+```
+- Pass the new handleSubmit function to the onSubmit prop to opt out of the form reset
+```js
+<form onSubmit={handleSubmit}>
+```
+
+## Displaying Validation errors
+- Since we are using NextUI library, error messages can be passed as props to Input Component and Textarea component:
+```js
+<Input
+    name="name"
+    label="Name"
+    labelPlacement="outside"
+    placeholder="Name"
+    isInvalid={!!formState.errors.name}
+    errorMessage={formState.errors.name?.join(', ')}
+/>
+
+<Textarea
+    name="description"
+    label="Description"
+    labelPlacement="outside"
+    placeholder="Describe your topic"
+    isInvalid={!!formState.errors.description}
+    errorMessage={formState.errors.description?.join(', ')}
+/>
+```
+- ![img_115.png](img_115.png)
+
+## Handling General Form Errors
+- If the user creates a topic, if they are not logged in, we have to give error message to user to login to create topics
+- We need ability to support generic error messages in our form similar to ValidationSummary in ASP.NET MVC
+- Add a _form property to our errorMessage formState object
+```js
+    type CreateTopicFormState = {
+    errors:{
+    name?:string[],
+    description?:string[],
+    _form?:string[]
+    }
+    }
+```
+- Modify the server action to populate this _form property when a generic error occurs such as user is not logged in
+```js
+'use server'
+import {z} from 'zod';
+import {auth} from "@/auth";
+
+const createTopicSchema = z.object({
+    name: z.string().min(3).regex(/^[a-z-]+$/,{message:"Must be lowercase letters or dashes without spaces"}),
+    description: z.string().min(10)
+});
+
+type CreateTopicFormState = {
+    errors:{
+        name?:string[],
+        description?:string[],
+        _form?:string[]
+    }
+}
+
+export  async function createTopic(formState:CreateTopicFormState,formdata:FormData):Promise<CreateTopicFormState> {
+    const result = createTopicSchema.safeParse({
+        name:formdata.get('name'),
+        description:formdata.get('description'),
+    });
+
+    if(!result.success) {
+        return {
+            errors: result.error.flatten().fieldErrors
+        }
+    }
+
+    const session = await auth();
+    if(!session || !session.user) {
+        return {
+            errors:{
+                _form:['You must be signed in to do this action']
+            }
+        }
+    }
+
+    return {
+        errors:{}
+    };
+    //TODO: revalidate the homepage after creating the topic
+}
+```
+- Modify the topic-create-form component to show this generic error
+```js
+ {
+    formState.errors._form ? <div className=" rounded p-2 bg-red-200 border border-red-400">
+        {formState.errors._form.join(', ')}
+    </div> : null
+}
+<Button type="submit">Submit</Button>
+```
+## Handling Database errors in forms
+- We will use try-catch block to save the topic to database and handle errors accordingly.
+- We will also use paths to redirect to show topic path
+```js
+'use server'
+import {z} from 'zod';
+import {auth} from "@/auth";
+import type {Topic} from "@prisma/client";
+import {redirect} from "next/navigation";
+import {db} from "@/db"
+import paths from "@/paths"
+import {revalidatePath} from "next/cache";
+
+const createTopicSchema = z.object({
+    name: z.string().min(3).regex(/^[a-z-]+$/,{message:"Must be lowercase letters or dashes without spaces"}),
+    description: z.string().min(10)
+});
+
+type CreateTopicFormState = {
+    errors:{
+        name?:string[],
+        description?:string[],
+        _form?:string[]
+    }
+}
+
+export  async function createTopic(formState:CreateTopicFormState,formdata:FormData):Promise<CreateTopicFormState> {
+    const result = createTopicSchema.safeParse({
+        name:formdata.get('name'),
+        description:formdata.get('description'),
+    });
+
+    if(!result.success) {
+        return {
+            errors: result.error.flatten().fieldErrors
+        }
+    }
+
+    const session = await auth();
+    if(!session || !session.user) {
+        return {
+            errors:{
+                _form:['You must be signed in to do this action']
+            }
+        }
+    }
+
+    //we will use the topic id for redirect, so we will place it outside try-catch block, and we cannot place redirect inside a try-catch block
+    let topic: Topic;
+    try {
+        topic = await db.topic.create({
+            data:{
+                slug: result.data.name,
+                description: result.data.description
+            }
+        })
+    }
+    catch(err:unknown){
+          if(err instanceof Error){
+              return {
+                  errors:{
+                      _form:[err.message]
+                  }
+              }
+          } else{
+              return {
+                  errors:{
+                      _form:['Some error occurred']
+                  }
+              }
+          }
+    }
+
+    //TODO: revalidate the homepage after creating the topic
+    revalidatePath('/')
+
+    redirect(paths.topicShow(topic.slug))
+}
+```
+
+## Using Database Queries
+
+
+
+
+
 
 
 
