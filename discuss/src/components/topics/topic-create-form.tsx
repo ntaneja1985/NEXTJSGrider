@@ -5,10 +5,11 @@ import {
     Textarea,
     Popover,
     PopoverContent,
-    PopoverTrigger
+    PopoverTrigger, Form
 } from "@nextui-org/react";
 import {useFormState} from 'react-dom';
 import * as actions from "@/actions";
+import FormButton from "@/components/common/form-button";
 
 export default function TopicCreateForm()
 {
@@ -44,7 +45,9 @@ export default function TopicCreateForm()
                                 {formState.errors._form.join(', ')}
                             </div> : null
                         }
-                        <Button type="submit">Submit</Button>
+                        <FormButton>
+                            Submit
+                        </FormButton>
                     </div>
                 </form>
             </PopoverContent>

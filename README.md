@@ -2154,6 +2154,696 @@ export  async function createTopic(formState:CreateTopicFormState,formdata:FormD
 
 ## Using Database Queries
 
+### Replacing useFormStatus() with useActionState()
+- React 19/Next.js 15 introduces some breaking changes while wiring up a loading spinner when submitting our form
+- Return isPending from useActionState()
+```js
+const [formState, action, isPending] = useActionState(actions.createTopic, {
+```
+- Pass isPending from useActionState to the isLoading prop of the FormButton component
+```js
+<FormButton isLoading={isPending}>Save</FormButton>
+```
+- In form-button.tsx Add isLoading to the interface:
+```js
+interface FormButtonProps {
+  children: React.ReactNode;
+  isLoading: boolean;
+}
+```
+- Receive the isLoading prop in the FormButton Component
+```js
+export default function FormButton({ children, isLoading }: FormButtonProps) {
+```
+- Pass isLoading instead of pending to the isLoading prop of the Button component
+````js
+<Button type="submit" isLoading={isLoading}>
+````
+### Showing Loading Spinners
+- ![img_117.png](img_117.png)
+- We will useFormStatus hook inside the FormButton component like this
+```js
+'use client'
+import {useFormStatus} from 'react-dom'
+import {Button} from "@nextui-org/react";
+import {ReactNode} from "react";
+
+type FormButtonProps = {
+    children: ReactNode
+}
+
+export default function FormButton({children}: FormButtonProps) {
+
+    const {pending} = useFormStatus();
+    return (
+        <Button type="submit" isLoading={pending}>
+            {children}
+        </Button>
+    )
+}
+```
+- Then we can call this inside the topic-create-form like this
+```js
+'use client'
+import {
+    Input,
+    Button,
+    Textarea,
+    Popover,
+    PopoverContent,
+    PopoverTrigger, Form
+} from "@nextui-org/react";
+import {useFormState} from 'react-dom';
+import * as actions from "@/actions";
+import FormButton from "@/components/common/form-button";
+
+export default function TopicCreateForm()
+{
+    const [formState,action]= useFormState(actions.createTopic,{errors:{}});
+    return(
+        <Popover placement="left">
+            <PopoverTrigger>
+                <Button color="primary">Create a Topic</Button>
+            </PopoverTrigger>
+            <PopoverContent>
+                <form action={action}>
+                    <div className="flex flex-col gap-4 p-4 w-80">
+                        <h3 className="text-lg">Create a Topic</h3>
+                        <Input
+                            name="name"
+                            label="Name"
+                            labelPlacement="outside"
+                            placeholder="Name"
+                            isInvalid={!!formState.errors.name}
+                            errorMessage={formState.errors.name?.join(', ')}
+                        />
+
+                        <Textarea
+                            name="description"
+                            label="Description"
+                            labelPlacement="outside"
+                            placeholder="Describe your topic"
+                            isInvalid={!!formState.errors.description}
+                            errorMessage={formState.errors.description?.join(', ')}
+                        />
+                        {
+                            formState.errors._form ? <div className=" rounded p-2 bg-red-200 border border-red-400">
+                                {formState.errors._form.join(', ')}
+                            </div> : null
+                        }
+                        <FormButton>
+                            Submit
+                        </FormButton>
+                    </div>
+                </form>
+            </PopoverContent>
+        </Popover>
+    )
+}
+```
+## Fetching and Listing Content from Prisma
+- We will list topics in a separate component called topic-list like this:
+```js
+import {db} from '@/db'
+import Link from 'next/link'
+import {Chip} from "@nextui-org/react";
+import paths from "@/paths";
+
+export default async function TopicList() {
+    const topics = await db.topic.findMany();
+
+    const renderedTopics = topics.map((topic) => {
+        return (
+            <div key={topic.id}>
+                <Link href={paths.topicShow(topic.slug)}>
+                    <Chip color="warning" variant="shadow">
+                        {topic.slug}
+                </Chip>
+                </Link>
+            </div>
+        )
+    })
+
+    return (
+        <div className="flex flex-row flex-wrap gap-2">
+            {renderedTopics.length > 0 ? renderedTopics : null}
+        </div>
+    )
+
+}
+```
+- We will display it on the homepage like this:
+```js
+import TopicCreateForm from "@/components/topics/topic-create-form";
+import TopicListForm from "@/components/topics/topic-list";
+import {Divider} from "@nextui-org/react";
+
+export default  function Home() {
+   return(
+       <div className="grid grid-cols-4 gap-4 p-4">
+          <div className="col-span-3">
+             <h1 className="text-xl m-2">Top Posts</h1>
+          </div>
+          <div className="border shadow py-3 px-2">
+             <TopicCreateForm />
+              <Divider className="my-2" />
+              <h3 className="text-lg">Topics</h3>
+              <TopicListForm />
+          </div>
+      </div>
+   )
+}
+
+```
+## Topic Show Page
+- We can create a topic show page like this:
+```js
+import PostCreateForm from "@/components/posts/post-create-form";
+type TopicShowPageProps = {
+    params:{
+        slug:string
+    }
+}
+
+export default function TopicShowPage({params}: TopicShowPageProps){
+    const {slug} = params;
+
+    return (<div className="grid grid-cols-4 gap-4 p-4">
+        <div className="col-span-3">
+            <h1 className="text-2xl font-bold mb-2">
+                {slug}
+            </h1>
+        </div>
+
+        <div >
+        <PostCreateForm/>
+        </div>
+    </div>);
+}
+```
+- We can have a post create form like this:
+```js
+'use client'
+import {
+    Input,
+    Button,
+    Textarea,
+    Popover,
+    PopoverContent,
+    PopoverTrigger
+} from "@nextui-org/react";
+import {useFormState} from 'react-dom';
+import * as actions from "@/actions";
+import FormButton from "@/components/common/form-button";
+
+export default function PostCreateForm(){
+    const [formState,action]= useFormState(actions.createPost,{errors:{}});
+    return (<Popover placement="left">
+        <PopoverTrigger>
+            <Button color="primary">Create a Post</Button>
+        </PopoverTrigger>
+        <PopoverContent>
+            <form action={action}>
+                <div className="flex flex-col gap-4 p-4 w-80">
+                    <h3 className="text-lg">Create a Post</h3>
+                    <Input
+                        name="title"
+                        label="title"
+                        labelPlacement="outside"
+                        placeholder="Title"
+                        isInvalid={!!formState.errors.title}
+                        errorMessage={formState.errors.title?.join(', ')}
+                    />
+
+                    <Textarea
+                        name="content"
+                        label="Content"
+                        labelPlacement="outside"
+                        placeholder="Content"
+                        isInvalid={!!formState.errors.content}
+                        errorMessage={formState.errors.content?.join(', ')}
+                    />
+                    {
+                        formState.errors._form ? <div className=" rounded p-2 bg-red-200 border border-red-400">
+                            {formState.errors._form.join(', ')}
+                        </div> : null
+                    }
+                    <FormButton>
+                        Submit
+                    </FormButton>
+                </div>
+            </form>
+        </PopoverContent>
+    </Popover>)
+}
+```
+- We can have a server action: create-post.ts like this
+```js
+'use server'
+import {z} from 'zod';
+import {auth} from "@/auth";
+import type {Post} from "@prisma/client";
+import {redirect} from "next/navigation";
+import {db} from "@/db"
+import paths from "@/paths"
+import {revalidatePath} from "next/cache";
+
+
+const createPostSchema = z.object({
+    title: z.string().min(3),
+    content: z.string().min(10)
+});
+
+type CreatePostFormState = {
+    errors:{
+        title?:string[],
+        content?:string[],
+        _form?:string[]
+    }
+}
+
+export  async function createPost(formState:CreatePostFormState, formdata:FormData) : Promise<CreatePostFormState> {
+    //Validate against the createTopicSchema
+    const result = createPostSchema.safeParse({
+        title:formdata.get('title'),
+        content:formdata.get('content'),
+    });
+
+    if(!result.success) {
+        return {
+            errors: result.error.flatten().fieldErrors
+        }
+    }
+
+    const session = await auth();
+    if(!session || !session.user) {
+        return {
+            errors:{
+                _form:['You must be signed in to do this action']
+            }
+        }
+    }
+
+    return {
+        errors:{}
+    }
+
+    //TODO: revalidate the topic show page after creating a post
+}
+```
+
+## Passing additional arguments to a server action
+- ![img_119.png](img_119.png)
+- Earlier when we had to call our server action with additional argument, we used to use the bind() function like this:
+- ![img_120.png](img_120.png)
+- We will first pass the topic Name as a prop from the TopicShowPage to the PostCreateForm component like this
+```js
+<div >
+    <PostCreateForm topicName = {slug}/>
+</div>
+```
+- We will still use the bind function but use it like this:
+```js
+type PostCreateFormProps = {
+    topicName: string;
+}
+export default function PostCreateForm({topicName}:PostCreateFormProps){
+    const [formState,action]= useFormState(
+        actions.createPost.bind(null,topicName),
+        {errors:{}});
+```
+- Inside our server action now we will receive 3 arguments, so we need to change its signature as follows:
+```js
+export  async function createPost(topicName:string, formState:CreatePostFormState, formdata:FormData) : Promise<CreatePostFormState> {
+    //Validate against the createPostSchema
+    const result = createPostSchema.safeParse({
+        title:formdata.get('title'),
+        content:formdata.get('content'),
+    });
+```
+- We can finally create the post with the following code:
+```js
+'use server'
+import {z} from 'zod';
+import {auth} from "@/auth";
+import type {Post} from "@prisma/client";
+import {redirect} from "next/navigation";
+import {db} from "@/db"
+import paths from "@/paths"
+import {revalidatePath} from "next/cache";
+
+
+const createPostSchema = z.object({
+    title: z.string().min(3),
+    content: z.string().min(10)
+});
+
+type CreatePostFormState = {
+    errors:{
+        title?:string[],
+        content?:string[],
+        _form?:string[]
+    }
+}
+
+export  async function createPost(topicName:string, formState:CreatePostFormState, formdata:FormData) : Promise<CreatePostFormState> {
+    //Validate against the createPostSchema
+    const result = createPostSchema.safeParse({
+        title:formdata.get('title'),
+        content:formdata.get('content'),
+    });
+
+    if(!result.success) {
+        return {
+            errors: result.error.flatten().fieldErrors
+        }
+    }
+
+    const session = await auth();
+    if(!session || !session.user) {
+        return {
+            errors:{
+                _form:['You must be signed in to do this action']
+            }
+        }
+    }
+
+    //Find a topic with the topic Name prop and get its topic id
+    const topic = await db.topic.findFirst({
+        where: {
+            slug: topicName
+        }
+    });
+
+    if(!topic) {
+        return {
+            errors:{
+                _form:['Could not find a topic']
+            }
+        }
+    }
+
+    //we will use the post id for redirect, so we will place it outside try-catch block, and we cannot place redirect inside a try-catch block
+    let post: Post;
+    try {
+        post = await db.post.create({
+            data:{
+                title: result.data.title,
+                content: result.data.content,
+                userId: session.user.id,
+                topicId: topic.id
+            }
+        })
+    }
+    catch(err:unknown){
+        if(err instanceof Error){
+            return {
+                errors:{
+                    _form:[err.message]
+                }
+            }
+        } else{
+            return {
+                errors:{
+                    _form:['Some error occurred']
+                }
+            }
+        }
+    }
+
+
+    //revalidate the topic show page after creating a post
+    revalidatePath(paths.topicShow(topicName));
+
+    // redirect to the posts show page
+    redirect(paths.postShow(topicName,post.id));
+}
+```
+- We will merge a few files:
+- ![img_121.png](img_121.png)
+
+## Considerations around where to fetch data
+- ![img_122.png](img_122.png)
+- ![img_123.png](img_123.png)
+- ![img_124.png](img_124.png)
+- ![img_125.png](img_125.png)
+- Should we do data fetching inside a page or its child component
+- Should we prioritize doing data fetching higher up or lower down?
+- ![img_126.png](img_126.png)
+- ![img_127.png](img_127.png)
+### Pros and Cons of each approach
+- ![img_128.png](img_128.png)
+- What is n+1 query issue?
+- ![img_129.png](img_129.png)
+- ![img_130.png](img_130.png)
+- We need to make these database queries for each postListItem that we display
+- This is not correct, as we are hitting the database too many times just to render some very simple content on the page.
+- So we can mitigate this by doing this:
+- ![img_131.png](img_131.png)
+
+### Doing Data Fetching in Child Components
+- If we do data fetching in parent component, we can do over-fetching of data.
+- We may not require so much information in each of the child components
+- We can also have duplicate code in other pages using the child component.
+- Also writing interfaces or types for complex query data is tough!
+- ![img_132.png](img_132.png)
+- ![img_133.png](img_133.png)
+- ![img_134.png](img_134.png)
+- Skeleton pages look like this
+- ![img_135.png](img_135.png)
+
+### Recommended Data Fetching Approach
+- Capture the best things of each approach defined in Option#1 and Option#2 earlier
+- ![img_136.png](img_136.png)
+- Step 1: Make a Post Query file: This is a separate file that lists all the queries that can provide data to 'PostList' component:
+- ![img_137.png](img_137.png)
+- Step 2: In our post list component we will add a props interface to it
+- ![img_138.png](img_138.png)
+- Step 3: Our parent components can decide which query function to run to fetch some data
+- ![img_139.png](img_139.png)
+- Please note all of this is possible because both the query functions we define return the same kind of data: Promise<PostWithData[]>
+
+## Define in Parent, Fetch in Child Implementation
+- Step 1 : Make a Post Query File
+```js
+import type {Post} from "@prisma/client";
+import {db} from "@/db";
+
+export type PostWithData = (
+    Post & {
+        topic:{slug:string};
+        user: {name:string | null};
+        _count:{comments:number};
+    }
+)
+
+export function fetchPostsByTopicSlug(slug:string):Promise<PostWithData[]> {
+    return db.post.findMany({
+        where: {
+            topic:{slug:slug},
+        },
+        include: {
+            topic: {select:{slug:true}},
+            user: {select:{name:true}},
+            _count:{select:{comments:true}}
+        }
+    })
+}
+```
+Step 2: Define Props in the PostList component to accept a function that will do the data fetching
+```js
+import type { Post, User, Topic } from '@prisma/client';
+import Link from 'next/link';
+import paths from '@/paths';
+import type {PostWithData} from "@/db/queries/post";
+
+type PostListProps = {
+  fetchData: ()=> Promise<PostWithData[]>
+}
+
+export default async function PostList({fetchData}: PostListProps) {
+  const posts = await fetchData();
+  const renderedPosts = posts.map((post) => {
+    const topicSlug = post.topic.slug;
+
+    if (!topicSlug) {
+      throw new Error('Need a slug to link to a post');
+    }
+
+    return (
+      <div key={post.id} className="border rounded p-2">
+        <Link href={paths.postShow(topicSlug, post.id)}>
+          <h3 className="text-lg font-bold">{post.title}</h3>
+          <div className="flex flex-row gap-8">
+            <p className="text-xs text-gray-400">By {post.user.name}</p>
+            <p className="text-xs text-gray-400">
+              {post._count.comments} comments
+            </p>
+          </div>
+        </Link>
+      </div>
+    );
+  });
+
+  return <div className="space-y-2">{renderedPosts}</div>;
+}
+
+```
+- Step 3: In the Parent component decide which function to pass as props to the child component
+```js
+import PostCreateForm from "@/components/posts/post-create-form";
+import {fetchPostsByTopicSlug} from "@/db/queries/post";
+import PostList from "@/components/posts/post-list";
+
+type TopicShowPageProps = {
+    params:{
+        slug:string
+    }
+}
+
+export default function TopicShowPage({params}: TopicShowPageProps){
+    const {slug} = params;
+
+    return (<div className="grid grid-cols-4 gap-4 p-4">
+        <div className="col-span-3">
+            <h1 className="text-2xl font-bold mb-2">
+                {slug}
+            </h1>
+            <PostList fetchData={()=>fetchPostsByTopicSlug(slug)} />
+        </div>
+
+        <div >
+        <PostCreateForm topicName = {slug}/>
+        </div>
+    </div>);
+}
+```
+## Alternative Type Names and Query Definitions
+- We can infer the type from what is returned as the result of a function like this
+```js
+export type PostWithData = Awaited<ReturnType<typeof fetchPostsByTopicSlug>>[number];
+
+export function fetchPostsByTopicSlug(slug:string) {
+    return db.post.findMany({
+        where: {
+            topic:{slug:slug},
+        },
+        include: {
+            topic: {select:{slug:true}},
+            user: {select:{name:true}},
+            _count:{select:{comments:true}}
+        }
+    })
+}
+```
+- Here we know that fetchPostsByTopicSlug will return a Promise so we await that and then get a typeof of Result that is returned.
+- Since it returns an array we use the number property to infer the type from one of the elements returned in the array
+
+## Recursively Rendering Components
+- CommentShow is a little tricky because we have the ability to reply to comments as well.
+- So each comment can have a comment which can further have comments.
+- They need to be rendered recursively.
+- ![img_140.png](img_140.png)
+- ![img_142.png](img_142.png)
+- Here comments with id of 2 and 3 have a parent comment of id 1
+- ![img_146.png](img_146.png)
+
+### Solution Approaches
+- ![img_147.png](img_147.png)
+- Step 1 : Make a comment Query file:
+```js
+import type {Comment} from "@prisma/client";
+import {db} from "@/db";
+
+export type CommentWithAuthor = Comment & {
+    user: {name: string | null; image: string | null}
+};
+
+export function fetchCommentsByPostId(postId: string): Promise<CommentWithAuthor[]> {
+    return db.comment.findMany({
+        where:{postId: postId},
+        include:{
+            user:{
+                select:{
+                    name:true,
+                    image:true
+                }
+            }
+        }
+    })
+}
+
+```
+- Define props in the Comment List component that will fetch the data
+```js
+import CommentShow from "@/components/comments/comment-show";
+import {CommentWithAuthor} from "@/db/queries/comments";
+
+type CommentListProps = {
+  fetchData: () => Promise<CommentWithAuthor[]>;
+}
+
+// TODO: Get a list of comments from somewhere
+export default async function CommentList({fetchData}: CommentListProps) {
+  const comments = await fetchData();
+  const topLevelComments = comments.filter(
+    (comment) => comment.parentId === null
+  );
+  const renderedComments = topLevelComments.map((comment) => {
+    return (
+      <CommentShow
+        key={comment.id}
+        commentId={comment.id}
+        comments={comments}
+      />
+    );
+  });
+
+  return (
+    <div className="space-y-3">
+      <h1 className="text-lg font-bold">All {comments.length} comments</h1>
+      {renderedComments}
+    </div>
+  );
+}
+
+```
+Step 3: In the parent page component, decide which function to pass to the comment list component
+```js
+import Link from "next/link";
+import PostShow from "@/components/posts/post-show";
+import CommentList from "@/components/comments/comment-list";
+import CommentCreateForm from "@/components/comments/comment-create-form";
+import paths from "@/paths";
+import {fetchCommentsByPostId} from "@/db/queries/comments";
+
+interface PostShowPageProps {
+  params: {
+    slug: string;
+    postId: string;
+  };
+}
+
+export default async function PostShowPage({ params }: PostShowPageProps) {
+  const { slug, postId } = params;
+
+  return (
+    <div className="space-y-3">
+      <Link className="underline decoration-solid" href={paths.topicShow(slug)}>
+        {"< "}Back to {slug}
+      </Link>
+       <PostShow postId={postId} />
+       <CommentCreateForm postId={postId} startOpen ={true} />
+       <CommentList fetchData={()=>fetchCommentsByPostId(postId)} />
+    </div>
+  );
+}
+
+```
+## Caching and Request Memoization
+
+
+
 
 
 

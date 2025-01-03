@@ -21,6 +21,9 @@ type CreateTopicFormState = {
 }
 
 export  async function createTopic(formState:CreateTopicFormState,formdata:FormData):Promise<CreateTopicFormState> {
+
+
+    //Validate against the createTopicSchema
     const result = createTopicSchema.safeParse({
         name:formdata.get('name'),
         description:formdata.get('description'),
