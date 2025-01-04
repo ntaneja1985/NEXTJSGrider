@@ -2841,10 +2841,302 @@ export default async function PostShowPage({ params }: PostShowPageProps) {
 
 ```
 ## Caching and Request Memoization
+- ![img_148.png](img_148.png)
+- We are going to call fetchCommentsByPostId() in all of our components
+- If we call this method in each of components from our [postId]/page.tsx to comment-list.tsx to comment-show.tsx, we are going to have a lot of calls to the database
+```js
+const comments = await fetchCommentsByPostId(postId);
+```
+- We can confirm this by adding logs inside this function
+- ![img_149.png](img_149.png)
+- This is not good. Having components individually fetch their data is bad!
+- Leads to duplicate queries to the database
+- We can however, use another caching system to de-duplicate these queries
+- ![img_150.png](img_150.png)
+- The Request memoization is also applied to the built-in "fetch" function also or functions that run with "cache" are de-duplicated.
+- For example take this app
+- ![img_151.png](img_151.png)
+- This system works as follows:
+- ![img_152.png](img_152.png)
+- It looks at each of the function calls to the database
+- It eliminates those functions which have the same arguments
+- It only allows those functions to execute on the database which have unique arguments.
+- It returns the same data to different components which made the function call to the database with the same arguments
+- ![img_153.png](img_153.png)
+- This is similar to the above situation where we have different components calling the same function: fetchCommentsByPostId(postId) with the same postId argument
+- This cache memoization system is cleared out between requests. If we have 2 users making the request at the same time and even if we are caching this cached data is not shared among users. As soon as the request is completed, this cached data is cleared out.
+- It is automatically used with the built-in fetch function
+- It can be used with other functions(like db queries) by using the 'cache' function
+- We can do it like this in our comments.ts file:
+```js
+import type {Comment} from "@prisma/client";
+import {db} from "@/db";
+import {cache} from 'react'
+
+export type CommentWithAuthor = Comment & {
+    user: {name: string | null; image: string | null}
+};
+
+export const  fetchCommentsByPostId = cache((postId: string): Promise<CommentWithAuthor[]> => {
+    console.log('making a query')
+    return db.comment.findMany({
+        where:{postId: postId},
+        include:{
+            user:{
+                select:{
+                    name:true,
+                    image:true
+                }
+            }
+        }
+    })
+})
+```
+- Now we just this call being executed just once
+- ![img_154.png](img_154.png)
+
+## Implementing the Search Functionality
+
+### Component Streaming
+- ![img_155.png](img_155.png)
+- ![img_156.png](img_156.png)
+- In Server Side Rendering all of our content is getting rendered on the Next.js Server
+- We send the fully rendered HTML document back to the user's browser.
+- However, we can make this process go a little faster using Suspense and Component Streaming.
+- ![img_157.png](img_157.png)
+- Suspense Component is provided by React.
+- When user makes a request for the PostShow page, we will only render the PostShow page and have empty spaces for other components within that page.
+- User will see content instantly. Once PostShow component and CommentList fetch the data from the database, and we render the HTML, we can stream this content to the page.
+- ![img_158.png](img_158.png)
+- This is called Component Streaming, and it is a very useful feature of SSR.
+- loading.tsx file is not the best approach to show the components which are streaming in.
+- We will use Suspense component of React like this
+```js
+import {Suspense} from "react";
+ <Suspense fallback={<div>Loading...</div>}>
+    <PostShow postId={postId} />
+</Suspense>
+```
+- This will make our page load really fast.
+
+### Adding a Loading Skeleton
+- ![img_159.png](img_159.png)
+- We can add a Skeleton like this by creating a new component: post-show-loading.tsx
+```js
+import {Skeleton} from "@nextui-org/react";
+
+export default function postShowLoading() {
+    return (
+        <div className="m-4">
+            <div className="my-2">
+                <Skeleton className="h-8 w-48" />
+            </div>
+            <div className="p-4 border rounded space-y-2">
+                <Skeleton className="h-6 w-32" />
+                <Skeleton className="h-6 w-32" />
+                <Skeleton className="h-6 w-32" />
+            </div>
+        </div>
+    )
+}
+```
+- Now we can replace this component in the fallback like this in [postId]/page.tsx
+```js
+<Suspense fallback={<PostShowLoading/>}>
+    <PostShow postId={postId} />
+</Suspense>
+```
+
+## Getting the Top Posts and displaying it on the Homepage:
+- We will make a query to get the top posts like this:
+```js
+export function fetchPostsByTopicSlug(slug:string): Promise<PostWithData[]> {
+    return db.post.findMany({
+        where: {
+            topic:{slug:slug},
+        },
+        include: {
+            topic: {select:{slug:true}},
+            user: {select:{name:true}},
+            _count:{select:{comments:true}}
+        }
+    })
+}
+```
+- We will then include it in the homepage like this
+```js
+import TopicCreateForm from "@/components/topics/topic-create-form";
+import TopicListForm from "@/components/topics/topic-list";
+import {Divider} from "@nextui-org/react";
+import PostList from "@/components/posts/post-list";
+import {fetchTopPosts} from "@/db/queries/post";
+
+export default  function Home() {
+   return(
+       <div className="grid grid-cols-4 gap-4 p-4">
+          <div className="col-span-3">
+             <h1 className="text-xl m-2">Top Posts</h1>
+              <PostList fetchData={fetchTopPosts}/>
+          </div>
+          <div className="border shadow py-3 px-2">
+             <TopicCreateForm />
+              <Divider className="my-2" />
+              <h3 className="text-lg">Topics</h3>
+              <TopicListForm />
+          </div>
+      </div>
+   )
+}
+
+```
+
+## Implementing Search
+- Create a Search Input component like this
+```js
+import {Input} from "@nextui-org/react";
+
+export default function SearchInput() {
+    return <Input/>
+}
+```
+- ![img_160.png](img_160.png)
+- ![img_161.png](img_161.png)
+- Page Components receive query string through searchParams prop
+- Client Components can get query string data with useSearchParams()
+- ![img_162.png](img_162.png)
+- Client components with useSearchParams() hook need to wrapped with a Suspense in production.
+- ![img_163.png](img_163.png)
+- Any page that references searchParams will be marked as dynamic during build time caching.
+- If we want to render the page statically, we need to access our query string in a client component.
+```js
+'use client'
+import {Input} from "@nextui-org/react";
+import {useSearchParams} from "next/navigation";
+
+export default function SearchInput() {
+    const searchParams = useSearchParams();
+
+    return <Input defaultValue={searchParams.get('term') || ""}/>
+}
+```
+- Now if we enter: http://localhost:3000/?term=javascript, then the above component will take that querystring and set it as default of the searchInput component
+
+## Redirecting from a server action
+- We can make a server action like this
+```js
+'use server'
+import {redirect} from "next/navigation";
+
+export async function search(formData:FormData) {
+    const term = formData.get('term');
+    if(typeof term !== 'string' || !term) {
+        redirect('/');
+    }
+
+    redirect(`/search?term=${term}`);
+}
+```
+- Also, we will wrap the search input inside a form and call this server action
+```js
+'use client'
+import {Input} from "@nextui-org/react";
+import {useSearchParams} from "next/navigation";
+import * as actions from '@/actions'
+
+export default function SearchInput() {
+    const searchParams = useSearchParams();
+
+    return (
+        <form action={actions.search}>
+    <Input name="term" defaultValue={searchParams.get('term') || ""}/>
+        </form>
+            )}
 
 
+```
+- Now we will create an app/search/page.tsx file and show our search page like this
+```js
+import {redirect} from "next/navigation";
 
+type SearchPageProps = {
+    searchParams:{
+        term:string
+    }
+}
 
+export default async function SearchPage({searchParams}: SearchPageProps){
+    const {term} = searchParams;
+    if(!term) {
+        redirect('/');
+    }
+
+    return <div>
+        {term}
+    </div>
+}
+```
+## Running the Search
+- We will create a function that will do the searching inside the database:
+```js
+export function fetchPostsBySearchTerm(term:string): Promise<PostWithData[]> {
+    return db.post.findMany({
+        include:{
+            topic:{select:{slug:true}},
+            user: {select:{name:true,image:true}},
+            _count:{select: {comments:true}}
+        },
+        where:{
+            OR: [
+                {title:{contains: term}},
+                {content:{contains:term}}
+            ]
+        }
+    })
+}
+```
+- Next we will use this function inside our search page like this:
+```js
+import {redirect} from "next/navigation";
+import PostList from "@/components/posts/post-list";
+import {fetchPostsBySearchTerm} from "@/db/queries/post";
+
+type SearchPageProps = {
+    searchParams:{
+        term:string
+    }
+}
+
+export default async function SearchPage({searchParams}: SearchPageProps){
+    const {term} = searchParams;
+    if(!term) {
+        redirect('/');
+    }
+
+    return <div>
+       <PostList fetchData={()=>fetchPostsBySearchTerm(term)} />
+    </div>
+}
+```
+- This gives us result like this:
+- ![img_164.png](img_164.png)
+
+## Wrapping up client component with useSearchParams in a Suspense Boundary
+- When we try to build the application, we get this error:
+- ![img_165.png](img_165.png)
+- Reading search parameters through useSearchParams() without a Suspense boundary will opt the entire page into client-side rendering. 
+- This could cause your page to be blank until the client-side JavaScript has loaded.
+- We can fix it by wrapping our SearchInput component inside a Suspense like this: 
+```js
+ <NavbarContent justify="center">
+    <NavbarItem>
+        <Suspense>
+            <SearchInput/>
+        </Suspense>
+    </NavbarItem>
+</NavbarContent>
+```
+## Points to Remember:
+- ![img_166.png](img_166.png)
 
 
 
